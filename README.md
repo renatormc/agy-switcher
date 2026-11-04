@@ -1,43 +1,97 @@
 # agy-switch
 
-Alterna entre várias contas do **Antigravity CLI** (`agy`).
+Switch between multiple **Antigravity CLI** (`agy`) accounts.
 
-O login do `agy` fica em `~/.gemini/antigravity-cli/antigravity-oauth-token`.
-O `agy-switch` guarda uma cópia desse arquivo para cada perfil, em `~/.agy-switch/profiles/<nome>/`
-(permissões 0700/0600), e coloca de volta a cópia certa quando você troca de conta.
+`agy` stores its login in `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+`agy-switch` keeps a copy of that file for each profile in `~/.agy-switch/profiles/<name>/`
+(permissions 0700/0600) and puts the right one back in place when you switch accounts.
 
-## Instalação
+## Requirements
+
+- Linux or macOS
+- [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 automatically if needed)
+- Antigravity CLI (`agy`) installed and on your `PATH`
+
+Install uv if you don't have it:
 
 ```bash
-uv tool install .          # instala o comando `agy-switch` no PATH
-# ou, para desenvolvimento:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+## Installation
+
+From the project directory:
+
+```bash
+git clone <repo-url> agy-switch   # or copy the project folder
+cd agy-switch
+uv tool install .
+```
+
+This installs the `agy-switch` command into `~/.local/bin`. If the shell can't find it,
+add that directory to your `PATH`:
+
+```bash
+uv tool update-shell   # then open a new terminal
+```
+
+Check the installation:
+
+```bash
+agy-switch --version
+```
+
+To update after changing the code:
+
+```bash
+uv tool install . --reinstall
+```
+
+To uninstall:
+
+```bash
+uv tool uninstall agy-switch
+```
+
+Saved profiles in `~/.agy-switch` are not removed. Delete that directory if you don't need them.
+
+### Running without installing
+
+```bash
 uv run agy-switch --help
 ```
 
-## Uso
+## Usage
 
 ```bash
-# 1. Com o agy logado na conta pessoal:
+# 1. With agy logged in to your personal account:
 agy-switch add personal
 
-# 2. Adicionar outra conta (desloga, abre o agy para login e salva o resultado):
+# 2. Add another account (logs out, opens agy so you can sign in, then saves it):
 agy-switch add work --login
 
-agy-switch list            # * marca o perfil ativo
+agy-switch list            # * marks the active profile
 agy-switch use personal
 agy-switch use work
 agy-switch current
-agy-switch remove personal # pede confirmação (-y para pular)
+agy-switch remove personal # asks for confirmation (-y to skip)
 ```
 
-Outras opções: `add --force` sobrescreve um perfil existente; `ls`, `switch` e `rm` são aliases.
+| Command | Description |
+| --- | --- |
+| `add NAME [--login] [--force]` | Save the current agy login as a profile. `--login` signs in to a new account first. `--force` overwrites an existing profile. |
+| `list` (`ls`) | List profiles and their emails. |
+| `use NAME` (`switch`) | Switch agy to the given profile. |
+| `current` | Show the active profile and warn if agy is logged in to a different account. |
+| `remove NAME [-y]` (`rm`) | Delete a saved profile. |
 
-## Detalhes
+## Details
 
-- O `agy` renova o token sozinho. Antes de trocar de conta, o `agy-switch` salva o token
-  atual no perfil ativo, desde que o e-mail ainda seja o mesmo. Assim o perfil não fica
-  com um token vencido.
-- Antes de sobrescrever o login, o `agy-switch` guarda um backup em `~/.agy-switch/backups/` (mantém os 10 últimos).
-- Feche as sessões abertas do `agy` antes de trocar de conta.
-- Variáveis de ambiente: `AGY_HOME` (padrão `~/.gemini/antigravity-cli`) e
-  `AGY_SWITCH_HOME` (padrão `~/.agy-switch`).
+- `agy` refreshes its token on its own. Before switching accounts, `agy-switch` saves the
+  current token back into the active profile, as long as the email still matches. This
+  keeps profiles from holding an expired token.
+- Before overwriting the login, `agy-switch` saves a backup to `~/.agy-switch/backups/`
+  (keeps the 10 most recent).
+- Close any running `agy` sessions before switching accounts.
+- Environment variables: `AGY_HOME` (default `~/.gemini/antigravity-cli`) and
+  `AGY_SWITCH_HOME` (default `~/.agy-switch`).

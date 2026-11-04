@@ -1,7 +1,7 @@
 [project]
 name = "agy-switch"
 version = "0.1.0"
-description = "Alterna entre contas do Antigravity CLI (agy)"
+description = "Switch between Antigravity CLI (agy) accounts"
 readme = "README.md"
 authors = [
     { name = "renatormc", email = "renatomartinsrmc@gmail.com" }

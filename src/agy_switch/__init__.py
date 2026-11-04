@@ -1,4 +1,4 @@
-"""agy-switch: alterna entre contas do Antigravity CLI (agy)."""
+"""agy-switch: switch between Antigravity CLI (agy) accounts."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 __version__ = "0.1.0"
 
-# Arquivos do diretório do agy que pertencem à conta logada.
+# Files in the agy directory that belong to the logged-in account.
 CREDENTIAL_FILES = ["antigravity-oauth-token"]
 TOKEN_FILE = "antigravity-oauth-token"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -58,8 +58,8 @@ def profile_dir(name: str) -> Path:
 def validate_name(name: str) -> str:
     if not NAME_RE.match(name):
         raise SwitchError(
-            f"nome de perfil inválido: {name!r} "
-            "(use letras, números, '.', '_' ou '-')"
+            f"invalid profile name: {name!r} "
+            "(use letters, digits, '.', '_' or '-')"
         )
     return name
 
@@ -70,7 +70,7 @@ def _ensure_private_dir(path: Path) -> None:
 
 
 def _atomic_copy(src: Path, dst: Path) -> None:
-    """Copia src para dst de forma atômica e com permissão 0600."""
+    """Atomically copy src to dst with 0600 permissions."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dst.parent, prefix=f".{dst.name}.")
     try:
@@ -145,12 +145,12 @@ def _now() -> str:
 
 
 def snapshot_live(name: str) -> None:
-    """Copia as credenciais atuais do agy para o perfil `name`."""
+    """Copy the current agy credentials into profile `name`."""
     src_dir = agy_home()
     if not (src_dir / TOKEN_FILE).is_file():
         raise SwitchError(
-            f"nenhum login encontrado em {src_dir / TOKEN_FILE}. "
-            "Faça login no agy primeiro (ou use `agy-switch add NOME --login`)."
+            f"no login found at {src_dir / TOKEN_FILE}. "
+            "Log in to agy first (or use `agy-switch add NAME --login`)."
         )
     dst_dir = profile_dir(name)
     _ensure_private_dir(profiles_dir())
@@ -167,8 +167,8 @@ def snapshot_live(name: str) -> None:
 
 
 def sync_active_back() -> None:
-    """O agy renova o token sozinho; salva a versão mais nova no perfil ativo
-    (apenas se o login atual ainda for da mesma conta)."""
+    """agy refreshes its token on its own; save the newest version back into the
+    active profile (only if the live login is still the same account)."""
     active = active_profile()
     if not active:
         return
@@ -198,7 +198,7 @@ def backup_live() -> Path | None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     dst = bdir / f"{TOKEN_FILE}.{stamp}"
     _atomic_copy(token, dst)
-    # mantém só os 10 backups mais recentes
+    # keep only the 10 most recent backups
     old = sorted(bdir.glob(f"{TOKEN_FILE}.*"))[:-10]
     for p in old:
         p.unlink(missing_ok=True)
@@ -213,7 +213,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     exists = (profile_dir(name) / TOKEN_FILE).is_file()
     if exists and not args.force:
         raise SwitchError(
-            f"o perfil {name!r} já existe (use --force para sobrescrever)"
+            f"profile {name!r} already exists (use --force to overwrite)"
         )
 
     if args.login:
@@ -222,41 +222,41 @@ def cmd_add(args: argparse.Namespace) -> int:
         token = agy_home() / TOKEN_FILE
         token.unlink(missing_ok=True)
         print(
-            "Abrindo o agy para login. Entre com a conta desejada e, depois de "
-            "logado, saia do agy (/exit ou Ctrl+C)."
+            "Opening agy to log in. Sign in with the desired account and, once "
+            "logged in, exit agy (/exit or Ctrl+C)."
         )
         try:
             subprocess.run([args.agy_bin], check=False)
         except FileNotFoundError:
             if backup:
                 _atomic_copy(backup, token)
-            raise SwitchError(f"executável {args.agy_bin!r} não encontrado")
+            raise SwitchError(f"executable {args.agy_bin!r} not found")
         except KeyboardInterrupt:
             pass
         if not token.is_file():
             if backup:
                 _atomic_copy(backup, token)
-            raise SwitchError("login não concluído; credenciais anteriores restauradas")
+            raise SwitchError("login not completed; previous credentials restored")
 
     email = live_email()
     for other in list_profiles():
         if other != name and email and profile_email(other) == email:
             print(
-                f"aviso: a conta {email} já está salva no perfil {other!r}",
+                f"warning: account {email} is already saved in profile {other!r}",
                 file=sys.stderr,
             )
     snapshot_live(name)
     state = load_state()
     state["active"] = name
     save_state(state)
-    print(f"Perfil {name!r} {'atualizado' if exists else 'adicionado'} ({email or 'e-mail desconhecido'}) e marcado como ativo.")
+    print(f"Profile {name!r} {'updated' if exists else 'added'} ({email or 'unknown email'}) and set as active.")
     return 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
     names = list_profiles()
     if not names:
-        print("Nenhum perfil salvo. Use `agy-switch add NOME`.")
+        print("No saved profiles. Use `agy-switch add NAME`.")
         return 0
     active = active_profile()
     width = max(len(n) for n in names)
@@ -269,9 +269,9 @@ def cmd_list(args: argparse.Namespace) -> int:
 def cmd_use(args: argparse.Namespace) -> int:
     name = validate_name(args.name)
     if name not in list_profiles():
-        raise SwitchError(f"perfil {name!r} não existe (veja `agy-switch list`)")
+        raise SwitchError(f"profile {name!r} does not exist (see `agy-switch list`)")
     if name == active_profile() and live_email() == profile_email(name):
-        print(f"Já usando {name!r} ({profile_email(name)}).")
+        print(f"Already using {name!r} ({profile_email(name)}).")
         return 0
     sync_active_back()
     backup_live()
@@ -279,7 +279,7 @@ def cmd_use(args: argparse.Namespace) -> int:
     state = load_state()
     state["active"] = name
     save_state(state)
-    print(f"Agora usando {name!r} ({profile_email(name) or 'e-mail desconhecido'}).")
+    print(f"Now using {name!r} ({profile_email(name) or 'unknown email'}).")
     return 0
 
 
@@ -288,16 +288,16 @@ def cmd_current(args: argparse.Namespace) -> int:
     live = live_email()
     if not active:
         if live:
-            print(f"Nenhum perfil ativo (agy logado como {live}, não salvo).")
+            print(f"No active profile (agy is logged in as {live}, not saved).")
         else:
-            print("Nenhum perfil ativo.")
+            print("No active profile.")
         return 1
     expected = profile_email(active)
-    print(f"{active} ({expected or 'e-mail desconhecido'})")
+    print(f"{active} ({expected or 'unknown email'})")
     if live != expected:
         print(
-            f"aviso: o agy está logado como {live or 'ninguém'}, "
-            f"diferente do perfil {active!r}",
+            f"warning: agy is logged in as {live or 'nobody'}, "
+            f"which differs from profile {active!r}",
             file=sys.stderr,
         )
     return 0
@@ -307,11 +307,11 @@ def cmd_remove(args: argparse.Namespace) -> int:
     name = validate_name(args.name)
     pdir = profile_dir(name)
     if not pdir.is_dir():
-        raise SwitchError(f"perfil {name!r} não existe")
+        raise SwitchError(f"profile {name!r} does not exist")
     if not args.yes:
-        answer = input(f"Remover o perfil {name!r} ({profile_email(name) or '-'})? [s/N] ")
-        if answer.strip().lower() not in ("s", "sim", "y", "yes"):
-            print("Cancelado.")
+        answer = input(f"Remove profile {name!r} ({profile_email(name) or '-'})? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Cancelled.")
             return 1
     shutil.rmtree(pdir)
     state = load_state()
@@ -319,11 +319,11 @@ def cmd_remove(args: argparse.Namespace) -> int:
         state["active"] = None
         save_state(state)
         print(
-            f"Perfil {name!r} removido. Ele era o ativo; o login atual do agy "
-            "não foi alterado."
+            f"Profile {name!r} removed. It was the active one; the current agy "
+            "login was left unchanged."
         )
     else:
-        print(f"Perfil {name!r} removido.")
+        print(f"Profile {name!r} removed.")
     return 0
 
 
@@ -333,34 +333,34 @@ def cmd_remove(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="agy-switch",
-        description="Alterna entre contas do Antigravity CLI (agy).",
+        description="Switch between Antigravity CLI (agy) accounts.",
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = p.add_subparsers(dest="command", required=True, metavar="COMANDO")
+    sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
-    a = sub.add_parser("add", help="salva a conta logada no agy como um perfil")
-    a.add_argument("name", metavar="NOME")
+    a = sub.add_parser("add", help="save the account currently logged in to agy as a profile")
+    a.add_argument("name", metavar="NAME")
     a.add_argument(
         "--login", action="store_true",
-        help="desloga, abre o agy para fazer login em outra conta e salva o resultado",
+        help="log out, open agy to sign in to another account, and save the result",
     )
-    a.add_argument("-f", "--force", action="store_true", help="sobrescreve perfil existente")
+    a.add_argument("-f", "--force", action="store_true", help="overwrite an existing profile")
     a.add_argument("--agy-bin", default=os.environ.get("AGY_BIN", "agy"), help=argparse.SUPPRESS)
     a.set_defaults(func=cmd_add)
 
-    ls = sub.add_parser("list", aliases=["ls"], help="lista os perfis salvos")
+    ls = sub.add_parser("list", aliases=["ls"], help="list saved profiles")
     ls.set_defaults(func=cmd_list)
 
-    u = sub.add_parser("use", aliases=["switch"], help="troca para o perfil informado")
-    u.add_argument("name", metavar="NOME")
+    u = sub.add_parser("use", aliases=["switch"], help="switch to the given profile")
+    u.add_argument("name", metavar="NAME")
     u.set_defaults(func=cmd_use)
 
-    c = sub.add_parser("current", help="mostra o perfil ativo")
+    c = sub.add_parser("current", help="show the active profile")
     c.set_defaults(func=cmd_current)
 
-    r = sub.add_parser("remove", aliases=["rm"], help="remove um perfil salvo")
-    r.add_argument("name", metavar="NOME")
-    r.add_argument("-y", "--yes", action="store_true", help="não pede confirmação")
+    r = sub.add_parser("remove", aliases=["rm"], help="remove a saved profile")
+    r.add_argument("name", metavar="NAME")
+    r.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
     r.set_defaults(func=cmd_remove)
     return p
 
@@ -370,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except SwitchError as e:
-        print(f"erro: {e}", file=sys.stderr)
+        print(f"error: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130
