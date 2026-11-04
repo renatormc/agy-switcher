@@ -1,0 +1,17 @@
+[project]
+name = "agy-switch"
+version = "0.1.0"
+description = "Alterna entre contas do Antigravity CLI (agy)"
+readme = "README.md"
+authors = [
+    { name = "renatormc", email = "renatomartinsrmc@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+agy-switch = "agy_switch:main"
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
