@@ -15,9 +15,11 @@ from pathlib import Path
 
 __version__ = "0.1.0"
 
-# Files in the agy directory that belong to the logged-in account.
-CREDENTIAL_FILES = ["antigravity-oauth-token"]
+# agy keeps its login in the system keyring, and only falls back to this file (in
+# the agy directory) when no keyring is available. Profiles always use this file name.
 TOKEN_FILE = "antigravity-oauth-token"
+KEYRING_ATTRIBUTES = {"service": "gemini", "username": "antigravity"}
+KEYRING_LABEL = "Password for 'antigravity' on 'gemini'"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
@@ -69,13 +71,13 @@ def _ensure_private_dir(path: Path) -> None:
     os.chmod(path, 0o700)
 
 
-def _atomic_copy(src: Path, dst: Path) -> None:
-    """Atomically copy src to dst with 0600 permissions."""
+def _atomic_write(dst: Path, data: bytes) -> None:
+    """Atomically write data to dst with 0600 permissions."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dst.parent, prefix=f".{dst.name}.")
     try:
-        with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
-            shutil.copyfileobj(inp, out)
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
         os.chmod(tmp, 0o600)
         os.replace(tmp, dst)
     except BaseException:
@@ -98,6 +100,60 @@ def _read_json(path: Path) -> dict:
         return json.loads(path.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def _keyring_collection():
+    """Return the unlocked default keyring, or None if this system has no keyring."""
+    try:
+        import secretstorage
+    except ImportError:
+        return None
+    try:
+        conn = secretstorage.dbus_init()
+        if not secretstorage.check_service_availability(conn):
+            return None
+        collection = secretstorage.get_default_collection(conn)
+    except (secretstorage.exceptions.SecretStorageException, OSError):
+        return None
+    # A locked keyring must not fall through to the file: agy would ignore it.
+    if collection.is_locked() and collection.unlock():
+        raise SwitchError("the system keyring is locked; unlock it and try again")
+    return collection
+
+
+def read_live_token() -> bytes | None:
+    """Return the current agy login: the keyring if it has one, else the file."""
+    collection = _keyring_collection()
+    if collection is not None:
+        for item in collection.search_items(KEYRING_ATTRIBUTES):
+            return item.get_secret()
+    try:
+        return (agy_home() / TOKEN_FILE).read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def write_live_token(data: bytes) -> None:
+    collection = _keyring_collection()
+    if collection is None:
+        _atomic_write(agy_home() / TOKEN_FILE, data)
+    else:
+        collection.create_item(KEYRING_LABEL, KEYRING_ATTRIBUTES, data, replace=True)
+
+
+def clear_live_token() -> None:
+    collection = _keyring_collection()
+    if collection is not None:
+        for item in collection.search_items(KEYRING_ATTRIBUTES):
+            item.delete()
+    (agy_home() / TOKEN_FILE).unlink(missing_ok=True)
+
+
+def _email_from_token(data: bytes | None) -> str | None:
+    try:
+        return json.loads(data or b"{}").get("id_token_email")
+    except ValueError:
+        return None
 
 
 def token_email(token_path: Path) -> str | None:
@@ -134,7 +190,7 @@ def profile_email(name: str) -> str | None:
 
 
 def live_email() -> str | None:
-    return token_email(agy_home() / TOKEN_FILE)
+    return _email_from_token(read_live_token())
 
 
 def _now() -> str:
@@ -146,19 +202,16 @@ def _now() -> str:
 
 def snapshot_live(name: str) -> None:
     """Copy the current agy credentials into profile `name`."""
-    src_dir = agy_home()
-    if not (src_dir / TOKEN_FILE).is_file():
+    data = read_live_token()
+    if data is None:
         raise SwitchError(
-            f"no login found at {src_dir / TOKEN_FILE}. "
+            f"no login found in the system keyring or at {agy_home() / TOKEN_FILE}. "
             "Log in to agy first (or use `agy-switch add NAME --login`)."
         )
     dst_dir = profile_dir(name)
     _ensure_private_dir(profiles_dir())
     _ensure_private_dir(dst_dir)
-    for fname in CREDENTIAL_FILES:
-        src = src_dir / fname
-        if src.is_file():
-            _atomic_copy(src, dst_dir / fname)
+    _atomic_write(dst_dir / TOKEN_FILE, data)
     meta = _read_json(dst_dir / "meta.json")
     meta.setdefault("created_at", _now())
     meta["updated_at"] = _now()
@@ -178,26 +231,18 @@ def sync_active_back() -> None:
 
 
 def restore_profile(name: str) -> None:
-    src_dir = profile_dir(name)
-    dst_dir = agy_home()
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    for fname in CREDENTIAL_FILES:
-        src = src_dir / fname
-        if src.is_file():
-            _atomic_copy(src, dst_dir / fname)
-        else:
-            (dst_dir / fname).unlink(missing_ok=True)
+    write_live_token((profile_dir(name) / TOKEN_FILE).read_bytes())
 
 
 def backup_live() -> Path | None:
-    token = agy_home() / TOKEN_FILE
-    if not token.is_file():
+    data = read_live_token()
+    if data is None:
         return None
     bdir = store_home() / "backups"
     _ensure_private_dir(bdir)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     dst = bdir / f"{TOKEN_FILE}.{stamp}"
-    _atomic_copy(token, dst)
+    _atomic_write(dst, data)
     # keep only the 10 most recent backups
     old = sorted(bdir.glob(f"{TOKEN_FILE}.*"))[:-10]
     for p in old:
@@ -219,8 +264,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     if args.login:
         sync_active_back()
         backup = backup_live()
-        token = agy_home() / TOKEN_FILE
-        token.unlink(missing_ok=True)
+        clear_live_token()
         print(
             "Opening agy to log in. Sign in with the desired account and, once "
             "logged in, exit agy (/exit or Ctrl+C)."
@@ -229,13 +273,13 @@ def cmd_add(args: argparse.Namespace) -> int:
             subprocess.run([args.agy_bin], check=False)
         except FileNotFoundError:
             if backup:
-                _atomic_copy(backup, token)
+                write_live_token(backup.read_bytes())
             raise SwitchError(f"executable {args.agy_bin!r} not found")
         except KeyboardInterrupt:
             pass
-        if not token.is_file():
+        if read_live_token() is None:
             if backup:
-                _atomic_copy(backup, token)
+                write_live_token(backup.read_bytes())
             raise SwitchError("login not completed; previous credentials restored")
 
     email = live_email()

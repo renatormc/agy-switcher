@@ -2,9 +2,14 @@
 
 Switch between multiple **Antigravity CLI** (`agy`) accounts.
 
-`agy` stores its login in `~/.gemini/antigravity-cli/antigravity-oauth-token`.
-`agy-switch` keeps a copy of that file for each profile in `~/.agy-switch/profiles/<name>/`
-(permissions 0700/0600) and puts the right one back in place when you switch accounts.
+On Linux, `agy` stores its login in the system keyring (GNOME Keyring, KWallet or another
+Secret Service provider). If no keyring is available, it uses
+`~/.gemini/antigravity-cli/antigravity-oauth-token` instead. `agy-switch` keeps a copy of the
+login for each profile in `~/.agy-switch/profiles/<name>/` and puts the right one back in
+place when you switch accounts.
+
+Saved profiles are unencrypted files, protected only by their permissions (0700/0600), even
+when `agy` itself uses the keyring.
 
 ## Requirements
 
@@ -93,5 +98,6 @@ agy-switch remove personal # asks for confirmation (-y to skip)
 - Before overwriting the login, `agy-switch` saves a backup to `~/.agy-switch/backups/`
   (keeps the 10 most recent).
 - Close any running `agy` sessions before switching accounts.
+- On macOS, only the file is supported. A login that `agy` keeps in the Keychain isn't detected.
 - Environment variables: `AGY_HOME` (default `~/.gemini/antigravity-cli`) and
   `AGY_SWITCH_HOME` (default `~/.agy-switch`).
