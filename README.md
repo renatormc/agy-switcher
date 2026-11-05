@@ -14,30 +14,27 @@ when `agy` itself uses the keyring.
 ## Requirements
 
 - Linux or macOS
-- [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 automatically if needed)
+- Python 3.12 or newer
+- [pipx](https://pipx.pypa.io/)
 - Antigravity CLI (`agy`) installed and on your `PATH`
-
-Install uv if you don't have it:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
 ## Installation
 
-From the project directory:
-
 ```bash
-git clone <repo-url> agy-switch   # or copy the project folder
-cd agy-switch
-uv tool install .
+pipx install agy-switch
 ```
 
 This installs the `agy-switch` command into `~/.local/bin`. If the shell can't find it,
 add that directory to your `PATH`:
 
 ```bash
-uv tool update-shell   # then open a new terminal
+pipx ensurepath   # then open a new terminal
+```
+
+If your default Python is older than 3.12, point pipx to a newer one:
+
+```bash
+pipx install --python python3.12 agy-switch
 ```
 
 Check the installation:
@@ -46,25 +43,19 @@ Check the installation:
 agy-switch --version
 ```
 
-To update after changing the code:
+To update:
 
 ```bash
-uv tool install . --reinstall
+pipx upgrade agy-switch
 ```
 
 To uninstall:
 
 ```bash
-uv tool uninstall agy-switch
+pipx uninstall agy-switch
 ```
 
 Saved profiles in `~/.agy-switch` are not removed. Delete that directory if you don't need them.
-
-### Running without installing
-
-```bash
-uv run agy-switch --help
-```
 
 ## Usage
 
@@ -101,3 +92,20 @@ agy-switch remove personal # asks for confirmation (-y to skip)
 - On macOS, only the file is supported. A login that `agy` keeps in the Keychain isn't detected.
 - Environment variables: `AGY_HOME` (default `~/.gemini/antigravity-cli`) and
   `AGY_SWITCH_HOME` (default `~/.agy-switch`).
+
+## Development
+
+Run from a clone with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv run agy-switch --help
+```
+
+To publish a release, set the new version, then build and upload it:
+
+```bash
+uv version --bump patch   # or minor / major
+rm -rf dist
+uv build
+uv publish                # needs a PyPI token in UV_PUBLISH_TOKEN
+```

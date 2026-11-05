@@ -11,9 +11,13 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("agy-switch")
+except PackageNotFoundError:  # running from a source tree that isn't installed
+    __version__ = "0+unknown"
 
 # agy keeps its login in the system keyring, and only falls back to this file (in
 # the agy directory) when no keyring is available. Profiles always use this file name.
