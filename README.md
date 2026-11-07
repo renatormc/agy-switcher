@@ -8,12 +8,15 @@ Secret Service provider). If no keyring is available, it uses
 login for each profile in `~/.agy-switch/profiles/<name>/` and puts the right one back in
 place when you switch accounts.
 
+On Windows, `agy` stores its login in the Windows Credential Manager (a generic credential
+named `gemini:antigravity`), and `agy-switch` reads and writes it there.
+
 Saved profiles are unencrypted files, protected only by their permissions (0700/0600), even
 when `agy` itself uses the keyring.
 
 ## Requirements
 
-- Linux or macOS
+- Linux, macOS or Windows
 - Python 3.12 or newer
 - [pipx](https://pipx.pypa.io/)
 - Antigravity CLI (`agy`) installed and on your `PATH`
@@ -24,8 +27,8 @@ when `agy` itself uses the keyring.
 pipx install agy-switch
 ```
 
-This installs the `agy-switch` command into `~/.local/bin`. If the shell can't find it,
-add that directory to your `PATH`:
+This installs the `agy-switch` command into `~/.local/bin` (`%USERPROFILE%\.local\bin` on
+Windows). If the shell can't find it, add that directory to your `PATH`:
 
 ```bash
 pipx ensurepath   # then open a new terminal
@@ -90,6 +93,9 @@ agy-switch remove personal # asks for confirmation (-y to skip)
   (keeps the 10 most recent).
 - Close any running `agy` sessions before switching accounts.
 - On macOS, only the file is supported. A login that `agy` keeps in the Keychain isn't detected.
+- On Windows, `~` means your user folder (`%USERPROFILE%`), so profiles live in
+  `%USERPROFILE%\.agy-switch`. File permissions are not enforced there; the profiles are
+  protected only by your user account's folder permissions.
 - Environment variables: `AGY_HOME` (default `~/.gemini/antigravity-cli`) and
   `AGY_SWITCH_HOME` (default `~/.agy-switch`).
 

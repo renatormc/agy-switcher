@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -24,6 +25,10 @@ except PackageNotFoundError:  # running from a source tree that isn't installed
 TOKEN_FILE = "antigravity-oauth-token"
 KEYRING_ATTRIBUTES = {"service": "gemini", "username": "antigravity"}
 KEYRING_LABEL = "Password for 'antigravity' on 'gemini'"
+# On Windows, agy uses a generic credential in the Credential Manager instead.
+WINCRED_TARGET = "gemini:antigravity"
+WINCRED_USER = "antigravity"
+IS_WINDOWS = sys.platform == "win32"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
@@ -92,7 +97,7 @@ def _atomic_write(dst: Path, data: bytes) -> None:
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
     os.chmod(tmp, 0o600)
@@ -101,9 +106,91 @@ def _write_json(path: Path, data: dict) -> None:
 
 def _read_json(path: Path) -> dict:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+# ----------------------------------------------------- Windows Credential Manager
+
+
+def _wincred_api():
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR),
+            ("LastWritten", wintypes.FILETIME),
+            ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+            ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD),
+            ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR),
+            ("UserName", wintypes.LPWSTR),
+        ]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    PCRED = ctypes.POINTER(CREDENTIAL)
+    advapi32.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(PCRED)]
+    advapi32.CredReadW.restype = wintypes.BOOL
+    advapi32.CredWriteW.argtypes = [PCRED, wintypes.DWORD]
+    advapi32.CredWriteW.restype = wintypes.BOOL
+    advapi32.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+    advapi32.CredDeleteW.restype = wintypes.BOOL
+    advapi32.CredFree.argtypes = [ctypes.c_void_p]
+    advapi32.CredFree.restype = None
+    return ctypes, CREDENTIAL, advapi32
+
+
+CRED_TYPE_GENERIC = 1
+CRED_PERSIST_LOCAL_MACHINE = 2
+ERROR_NOT_FOUND = 1168
+
+
+def _wincred_read() -> bytes | None:
+    ctypes, CREDENTIAL, api = _wincred_api()
+    pcred = ctypes.POINTER(CREDENTIAL)()
+    if not api.CredReadW(WINCRED_TARGET, CRED_TYPE_GENERIC, 0, ctypes.byref(pcred)):
+        err = ctypes.get_last_error()
+        if err == ERROR_NOT_FOUND:
+            return None
+        raise SwitchError(f"could not read the Windows credential: {ctypes.FormatError(err)}")
+    try:
+        cred = pcred.contents
+        return ctypes.string_at(cred.CredentialBlob, cred.CredentialBlobSize)
+    finally:
+        api.CredFree(pcred)
+
+
+def _wincred_write(data: bytes) -> None:
+    ctypes, CREDENTIAL, api = _wincred_api()
+    blob = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
+    cred = CREDENTIAL()
+    cred.Type = CRED_TYPE_GENERIC
+    cred.TargetName = WINCRED_TARGET
+    cred.UserName = WINCRED_USER
+    cred.CredentialBlobSize = len(data)
+    cred.CredentialBlob = ctypes.cast(blob, ctypes.POINTER(ctypes.c_ubyte))
+    cred.Persist = CRED_PERSIST_LOCAL_MACHINE
+    if not api.CredWriteW(ctypes.byref(cred), 0):
+        err = ctypes.get_last_error()
+        raise SwitchError(f"could not write the Windows credential: {ctypes.FormatError(err)}")
+
+
+def _wincred_delete() -> None:
+    ctypes, _, api = _wincred_api()
+    if not api.CredDeleteW(WINCRED_TARGET, CRED_TYPE_GENERIC, 0):
+        err = ctypes.get_last_error()
+        if err != ERROR_NOT_FOUND:
+            raise SwitchError(f"could not delete the Windows credential: {ctypes.FormatError(err)}")
+
+
+# ----------------------------------------------------------- Linux Secret Service
 
 
 def _keyring_collection():
@@ -127,10 +214,19 @@ def _keyring_collection():
 
 def read_live_token() -> bytes | None:
     """Return the current agy login: the keyring if it has one, else the file."""
+    if IS_WINDOWS:
+        data = _wincred_read()
+        if data is not None:
+            return data
+        return _read_token_file()
     collection = _keyring_collection()
     if collection is not None:
         for item in collection.search_items(KEYRING_ATTRIBUTES):
             return item.get_secret()
+    return _read_token_file()
+
+
+def _read_token_file() -> bytes | None:
     try:
         return (agy_home() / TOKEN_FILE).read_bytes()
     except FileNotFoundError:
@@ -138,6 +234,9 @@ def read_live_token() -> bytes | None:
 
 
 def write_live_token(data: bytes) -> None:
+    if IS_WINDOWS:
+        _wincred_write(data)
+        return
     collection = _keyring_collection()
     if collection is None:
         _atomic_write(agy_home() / TOKEN_FILE, data)
@@ -146,6 +245,10 @@ def write_live_token(data: bytes) -> None:
 
 
 def clear_live_token() -> None:
+    if IS_WINDOWS:
+        _wincred_delete()
+        (agy_home() / TOKEN_FILE).unlink(missing_ok=True)
+        return
     collection = _keyring_collection()
     if collection is not None:
         for item in collection.search_items(KEYRING_ATTRIBUTES):
@@ -155,13 +258,31 @@ def clear_live_token() -> None:
 
 def _email_from_token(data: bytes | None) -> str | None:
     try:
-        return json.loads(data or b"{}").get("id_token_email")
+        token = json.loads(data or b"{}")
     except ValueError:
         return None
+    if not isinstance(token, dict):
+        return None
+    if token.get("id_token_email"):
+        return token["id_token_email"]
+    # Some agy versions (e.g. on Windows) only keep the raw id_token JWT.
+    id_token = token.get("id_token")
+    if isinstance(id_token, str) and id_token.count(".") == 2:
+        payload = id_token.split(".")[1]
+        try:
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        except ValueError:
+            return None
+        if isinstance(claims, dict):
+            return claims.get("email")
+    return None
 
 
 def token_email(token_path: Path) -> str | None:
-    return _read_json(token_path).get("id_token_email")
+    try:
+        return _email_from_token(token_path.read_bytes())
+    except FileNotFoundError:
+        return None
 
 
 def load_state() -> dict:
@@ -209,7 +330,8 @@ def snapshot_live(name: str) -> None:
     data = read_live_token()
     if data is None:
         raise SwitchError(
-            f"no login found in the system keyring or at {agy_home() / TOKEN_FILE}. "
+            f"no login found in the {'Windows Credential Manager' if IS_WINDOWS else 'system keyring'} "
+            f"or at {agy_home() / TOKEN_FILE}. "
             "Log in to agy first (or use `agy-switch add NAME --login`)."
         )
     dst_dir = profile_dir(name)
@@ -273,8 +395,10 @@ def cmd_add(args: argparse.Namespace) -> int:
             "Opening agy to log in. Sign in with the desired account and, once "
             "logged in, exit agy (/exit or Ctrl+C)."
         )
+        # On Windows, CreateProcess doesn't search PATHEXT (agy.cmd, agy.exe...).
+        agy_bin = shutil.which(args.agy_bin) or args.agy_bin
         try:
-            subprocess.run([args.agy_bin], check=False)
+            subprocess.run([agy_bin], check=False)
         except FileNotFoundError:
             if backup:
                 write_live_token(backup.read_bytes())
