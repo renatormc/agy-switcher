@@ -16,49 +16,44 @@ when `agy` itself uses the keyring.
 
 ## Requirements
 
-- Linux, macOS or Windows
-- Python 3.12 or newer
-- [pipx](https://pipx.pypa.io/)
+- Linux, macOS or Windows (amd64 or arm64)
 - Antigravity CLI (`agy`) installed and on your `PATH`
 
 ## Installation
 
-```bash
-pipx install agy-switch
-```
+`agy-switch` is a single self-contained binary. Copy and paste one of these commands.
 
-This installs the `agy-switch` command into `~/.local/bin` (`%USERPROFILE%\.local\bin` on
-Windows). If the shell can't find it, add that directory to your `PATH`:
+**Linux / macOS** (installs to `~/.local/bin`):
 
 ```bash
-pipx ensurepath   # then open a new terminal
+curl -fsSL https://raw.githubusercontent.com/renatormc/agy-switcher/master/install.sh | sh
 ```
 
-If your default Python is older than 3.12, point pipx to a newer one:
+**Windows** (PowerShell; installs to `%LOCALAPPDATA%\Programs\agy-switch` and adds it to your user `PATH`):
 
-```bash
-pipx install --python python3.12 agy-switch
+```powershell
+irm https://raw.githubusercontent.com/renatormc/agy-switcher/master/install.ps1 | iex
 ```
 
-Check the installation:
+Open a new terminal afterwards if the command isn't found, then check the installation:
 
 ```bash
 agy-switch --version
 ```
 
-To update:
+To update, run the install command again. To install a specific version, set `VERSION`
+(Linux/macOS) or `AGY_SWITCH_VERSION` (Windows) to a tag such as `v0.3.0` first. The install
+directory can be changed with `INSTALL_DIR` / `AGY_SWITCH_INSTALL_DIR`.
+
+You can also download a binary from the
+[releases page](https://github.com/renatormc/agy-switcher/releases), or build it with Go:
 
 ```bash
-pipx upgrade agy-switch
+go install github.com/renatormc/agy-switcher/cmd/agy-switch@latest
 ```
 
-To uninstall:
-
-```bash
-pipx uninstall agy-switch
-```
-
-Saved profiles in `~/.agy-switch` are not removed. Delete that directory if you don't need them.
+To uninstall, delete the `agy-switch` binary. Saved profiles in `~/.agy-switch` are not
+removed. Delete that directory if you don't need them.
 
 ## Usage
 
@@ -101,17 +96,19 @@ agy-switch remove personal # asks for confirmation (-y to skip)
 
 ## Development
 
-Run from a clone with [uv](https://docs.astral.sh/uv/):
+Requires [Go](https://go.dev/dl/) 1.27 or newer.
 
 ```bash
-uv run agy-switch --help
+go run ./cmd/agy-switch --help
+go test ./...
+go build -o agy-switch ./cmd/agy-switch
 ```
 
-To publish a release, set the new version, then build and upload it:
+To publish a release, push a version tag. The
+[Release workflow](.github/workflows/release.yml) runs the tests, builds binaries for
+Linux, macOS and Windows (amd64 and arm64) and attaches them to a new GitHub release:
 
 ```bash
-uv version --bump patch   # or minor / major
-rm -rf dist
-uv build
-uv publish                # needs a PyPI token in UV_PUBLISH_TOKEN
+git tag v0.3.0
+git push origin v0.3.0
 ```
